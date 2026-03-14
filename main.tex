@@ -1,0 +1,807 @@
+% ============================================================================
+% P-Center Problem – Document
+% ============================================================================
+\documentclass[11pt,a4paper]{article}
+
+% ---- Packages ----
+\usepackage[utf8]{inputenc}
+\usepackage[T5]{fontenc}           % Vietnamese font encoding
+\usepackage[vietnamese,english]{babel}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{positioning, arrows.meta, calc}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{enumitem}
+\usepackage{caption}
+
+% ---- Theorem environments ----
+\newtheorem{definition}{Định nghĩa}
+\newtheorem{example}{Ví dụ}
+
+% ---- Custom commands ----
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+% ============================================================================
+\title{\textbf{Bài toán P-Center}\\[6pt]
+\large Mô tả, Mô hình ILP, Mô hình SAT và Dữ liệu thực nghiệm}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ====================================================================
+\section{Mô tả bài toán}
+\label{sec:description}
+% ====================================================================
+
+\subsection{Bối cảnh và ứng dụng}
+
+Bài toán \emph{P-Center} (hay \emph{Vertex P-Center}) là một bài toán tối ưu tổ hợp kinh điển trong lĩnh vực \textbf{định vị cơ sở} (\textit{facility location}).
+Bài toán được ứng dụng rộng rãi trong thực tế:
+\begin{itemize}[nosep]
+    \item \textbf{Dịch vụ khẩn cấp}: Đặt trạm cứu hỏa / cứu thương sao cho thời gian phản hồi tối đa là nhỏ nhất.
+    \item \textbf{Viễn thông}: Đặt các trạm phát / server sao cho khoảng cách (hoặc độ trễ) lớn nhất tới người dùng được tối thiểu hóa.
+    \item \textbf{Y tế}: Đặt các bệnh viện hoặc trung tâm tiêm chủng phục vụ một vùng dân cư.
+    \item \textbf{Logistics}: Đặt kho hàng để giảm thiểu khoảng cách vận chuyển xa nhất.
+\end{itemize}
+
+\subsection{Định nghĩa hình thức}
+
+\begin{definition}[Vertex P-Center Problem]
+Cho đồ thị vô hướng có trọng số $G = (V, E, w)$ với $|V| = n$ đỉnh, trong đó $w: E \to \mathbb{R}_{\ge 0}$ là hàm trọng số cạnh.
+Gọi $d(i,j)$ là khoảng cách đường đi ngắn nhất giữa hai đỉnh $i$ và $j$.
+Cho số nguyên dương $p$ ($1 \le p \le n$).
+
+Bài toán \textbf{Vertex P-Center} yêu cầu tìm tập $S \subseteq V$ với $|S| = p$ (gọi là các \textbf{center}) sao cho:
+\[
+    \min_{S \subseteq V,\; |S|=p}\; \max_{i \in V}\; \min_{j \in S}\; d(i,j)
+\]
+
+Nghĩa là, ta cần chọn $p$ đỉnh làm center để \textbf{tối thiểu hóa khoảng cách lớn nhất} từ bất kỳ đỉnh nào đến center gần nhất.
+\end{definition}
+
+Giá trị tối ưu $r^* = \max_{i \in V} \min_{j \in S^*} d(i,j)$ được gọi là \textbf{bán kính phủ} (\textit{covering radius}) hay \textbf{p-radius}.
+
+\subsection{Độ phức tạp}
+
+Bài toán P-Center là \textbf{NP-hard} với $p \ge 2$ trên đồ thị tổng quát~\cite{kariv1979algorithmic}.
+Ngay cả phiên bản quyết định -- ``\emph{Có tồn tại tập $S$ với $|S| \le p$ sao cho bán kính phủ $\le R$?}'' -- cũng là \textbf{NP-complete}.
+Vì vậy, các phương pháp giải chính xác thường dựa trên ILP, SAT/MaxSAT, hoặc branch-and-bound.
+
+
+% ====================================================================
+\section{Ví dụ minh họa}
+\label{sec:example}
+% ====================================================================
+
+\begin{example}
+Xét đồ thị $G$ gồm 6 đỉnh $V = \{1, 2, 3, 4, 5, 6\}$ với ma trận khoảng cách đường đi ngắn nhất cho trong \Cref{tab:dist_matrix}. Số center cần chọn: $p = 2$.
+\end{example}
+
+\begin{table}[h]
+\centering
+\caption{Ma trận khoảng cách $d(i,j)$ giữa các đỉnh.}
+\label{tab:dist_matrix}
+\begin{tabular}{c|cccccc}
+\toprule
+$d$ & 1 & 2 & 3 & 4 & 5 & 6 \\
+\midrule
+1 & 0 & 2 & 5 & 7 & 8 & 9 \\
+2 & 2 & 0 & 3 & 5 & 6 & 7 \\
+3 & 5 & 3 & 0 & 2 & 3 & 4 \\
+4 & 7 & 5 & 2 & 0 & 1 & 2 \\
+5 & 8 & 6 & 3 & 1 & 0 & 1 \\
+6 & 9 & 7 & 4 & 2 & 1 & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Phân tích.}
+\begin{itemize}[nosep]
+    \item Nếu chọn $S = \{2, 5\}$:
+    \begin{itemize}[nosep]
+        \item Đỉnh 1: $\min(d(1,2), d(1,5)) = \min(2, 8) = 2$
+        \item Đỉnh 2: $\min(d(2,2), d(2,5)) = \min(0, 6) = 0$
+        \item Đỉnh 3: $\min(d(3,2), d(3,5)) = \min(3, 3) = 3$
+        \item Đỉnh 4: $\min(d(4,2), d(4,5)) = \min(5, 1) = 1$
+        \item Đỉnh 5: $\min(d(5,2), d(5,5)) = \min(6, 0) = 0$
+        \item Đỉnh 6: $\min(d(6,2), d(6,5)) = \min(7, 1) = 1$
+    \end{itemize}
+    Bán kính phủ: $\max(2, 0, 3, 1, 0, 1) = 3$.
+
+    \item Nếu chọn $S = \{1, 6\}$:
+    \begin{itemize}[nosep]
+        \item Khoảng cách lớn nhất: $\max(\min(0,9), \min(2,7), \min(5,4), \min(7,2), \min(8,1), \min(9,0)) = \max(0, 2, 4, 2, 1, 0) = 4$.
+    \end{itemize}
+    Bán kính phủ: $4 > 3$, không tốt bằng phương án trên.
+
+    \item Nghiệm tối ưu: $S^* = \{2, 5\}$ với $r^* = 3$.
+\end{itemize}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+    node distance=1.8cm,
+    vertex/.style={circle, draw, minimum size=8mm, font=\small},
+    center/.style={circle, draw, fill=blue!25, minimum size=8mm, font=\small\bfseries},
+    edge label/.style={font=\scriptsize, midway, auto}
+]
+    % Nodes
+    \node[center] (2) {2};
+    \node[vertex] (1) [left=2cm of 2] {1};
+    \node[vertex] (3) [right=2cm of 2] {3};
+    \node[vertex] (4) [right=2cm of 3] {4};
+    \node[center] (5) [right=2cm of 4] {5};
+    \node[vertex] (6) [right=2cm of 5] {6};
+
+    % Edges with weights
+    \draw (1) -- node[edge label, above] {2} (2);
+    \draw (2) -- node[edge label, above] {3} (3);
+    \draw (3) -- node[edge label, above] {2} (4);
+    \draw (4) -- node[edge label, above] {1} (5);
+    \draw (5) -- node[edge label, above] {1} (6);
+
+    % Covering arcs
+    \draw[dashed, blue!60, thick, -{Stealth}] (2) to[bend left=30] node[edge label, above, blue!80] {$d=2$} (1);
+    \draw[dashed, blue!60, thick, -{Stealth}] (2) to[bend right=20] node[edge label, below, blue!80] {$d=3$} (3);
+    \draw[dashed, red!60, thick, -{Stealth}] (5) to[bend left=20] node[edge label, above, red!80] {$d=1$} (4);
+    \draw[dashed, red!60, thick, -{Stealth}] (5) to[bend right=30] node[edge label, below, red!80] {$d=1$} (6);
+\end{tikzpicture}
+\caption{Nghiệm $S^* = \{2, 5\}$ với bán kính phủ $r^* = 3$.
+Các đỉnh center tô đậm; mũi tên nét đứt thể hiện phân bổ các đỉnh về center gần nhất.}
+\label{fig:example}
+\end{figure}
+
+
+% ====================================================================
+\section{Các ràng buộc chính}
+\label{sec:constraints}
+% ====================================================================
+
+Bài toán P-Center bao gồm \textbf{bốn nhóm ràng buộc} cốt lõi:
+
+\begin{enumerate}[label=\textbf{(C\arabic*)}]
+    \item \textbf{Ràng buộc số lượng center (Cardinality constraint):}
+    Phải chọn đúng $p$ đỉnh làm center.
+
+    \item \textbf{Ràng buộc gán (Assignment constraint):}
+    Mỗi đỉnh phải được gán cho đúng một center.
+
+    \item \textbf{Ràng buộc liên kết (Linking constraint):}
+    Một đỉnh chỉ có thể được gán cho một center nếu center đó đã được mở.
+
+    \item \textbf{Ràng buộc khoảng cách (Distance / minimax constraint):}
+    Khoảng cách từ mỗi đỉnh đến center được gán không vượt quá giá trị $z$ (bán kính phủ), đồng thời $z$ được tối thiểu hóa.
+\end{enumerate}
+
+
+% ====================================================================
+\section{Mô hình ILP}
+\label{sec:ilp}
+% ====================================================================
+
+\subsection{Tham số đầu vào}
+
+\begin{itemize}[nosep]
+    \item $V = \{1, 2, \dots, n\}$: tập đỉnh (vừa là điểm yêu cầu, vừa là vị trí tiềm năng đặt center).
+    \item $d_{ij} \in \mathbb{R}_{\ge 0}$: khoảng cách đường đi ngắn nhất giữa đỉnh $i$ và đỉnh $j$.
+    \item $p \in \mathbb{Z}_{>0}$: số center cần chọn.
+\end{itemize}
+
+\subsection{Biến quyết định}
+
+\begin{itemize}[nosep]
+    \item $y_j \in \{0, 1\}$, $\forall j \in V$: bằng 1 nếu đỉnh $j$ được chọn làm center, 0 ngược lại.
+    \item $x_{ij} \in \{0, 1\}$, $\forall i, j \in V$: bằng 1 nếu đỉnh $i$ được gán cho center $j$, 0 ngược lại.
+    \item $z \in \mathbb{R}_{\ge 0}$: bán kính phủ (khoảng cách lớn nhất).
+\end{itemize}
+
+\subsection{Mô hình}
+
+\begin{align}
+    \min \quad & z \label{eq:obj} \\[4pt]
+    \text{s.t.} \quad
+    & \sum_{j \in V} y_j = p \label{eq:cardinality} \\[4pt]
+    & \sum_{j \in V} x_{ij} = 1 && \forall\, i \in V \label{eq:assign} \\[4pt]
+    & x_{ij} \le y_j && \forall\, i, j \in V \label{eq:link} \\[4pt]
+    & \sum_{j \in V} d_{ij}\, x_{ij} \le z && \forall\, i \in V \label{eq:dist} \\[4pt]
+    & y_j \in \{0, 1\} && \forall\, j \in V \label{eq:binary_y} \\[4pt]
+    & x_{ij} \in \{0, 1\} && \forall\, i, j \in V \label{eq:binary_x} \\[4pt]
+    & z \ge 0 \label{eq:nonneg}
+\end{align}
+
+\subsection{Giải thích}
+
+\begin{itemize}[nosep]
+    \item \eqref{eq:obj}: Hàm mục tiêu -- tối thiểu hóa bán kính phủ $z$.
+    \item \eqref{eq:cardinality}: \textbf{(C1)} -- Chọn đúng $p$ center.
+    \item \eqref{eq:assign}: \textbf{(C2)} -- Mỗi đỉnh $i$ được gán cho đúng một center.
+    \item \eqref{eq:link}: \textbf{(C3)} -- Đỉnh $i$ chỉ được gán cho $j$ nếu $j$ là center ($y_j = 1$).
+    \item \eqref{eq:dist}: \textbf{(C4)} -- Khoảng cách từ đỉnh $i$ đến center được gán không vượt quá $z$.
+    \item \eqref{eq:binary_y}--\eqref{eq:nonneg}: Miền giá trị biến.
+\end{itemize}
+
+\paragraph{Nhận xét.}
+Mô hình có $O(n^2)$ biến nhị phân và $O(n^2)$ ràng buộc.
+Trong thực tế, có thể cải thiện bằng cách:
+\begin{itemize}[nosep]
+    \item Loại bỏ các biến $x_{ij}$ khi $d_{ij} > z_{\text{UB}}$ (upper bound biết trước).
+    \item Sử dụng các bất đẳng thức hợp lệ (\textit{valid inequalities}) và kỹ thuật \textit{branch-and-cut}.
+\end{itemize}
+
+
+% ====================================================================
+\section{Mô hình SAT}
+\label{sec:sat}
+% ====================================================================
+
+Thay vì giải bài toán tối ưu trực tiếp, cách tiếp cận SAT biến đổi P-Center thành \textbf{một chuỗi bài toán quyết định} thông qua tìm kiếm nhị phân trên bán kính $R$.
+
+\subsection{Ý tưởng: Quy về bài toán Set Covering}
+
+\paragraph{Bước 1: Sắp xếp các giá trị khoảng cách.}
+Gọi $D = \{d_{ij} : i, j \in V, i \ne j\}$ là tập tất cả giá trị khoảng cách phân biệt, sắp xếp tăng dần: $d^{(1)} < d^{(2)} < \cdots < d^{(L)}$.
+
+\paragraph{Bước 2: Tìm kiếm nhị phân.}
+Sử dụng \textbf{tìm kiếm nhị phân} trên tập $D$ để tìm giá trị $R^*$ nhỏ nhất sao cho bài toán quyết định sau có lời giải:
+
+\begin{quote}
+\emph{``Có tồn tại tập $S \subseteq V$ với $|S| \le p$ sao cho mọi đỉnh $i \in V$ đều có ít nhất một center $j \in S$ với $d(i,j) \le R$?''}
+\end{quote}
+
+Bài toán quyết định này chính là bài toán \textbf{Set Covering}:
+với mỗi đỉnh $j$, định nghĩa \emph{tập phủ}:
+\[
+    C_j(R) = \{i \in V : d(i,j) \le R\}
+\]
+Cần tìm $\le p$ tập $C_j$ sao cho hợp của chúng phủ toàn bộ $V$.
+
+\paragraph{Bước 3: Mã hóa SAT.}
+Bài toán Set Covering được mã hóa thành công thức CNF và giải bằng SAT solver.
+
+\subsection{Mã hóa CNF}
+
+\subsubsection{Biến Boolean}
+\begin{itemize}[nosep]
+    \item $y_j \in \{\texttt{true}, \texttt{false}\}$, $\forall j \in V$: $y_j = \texttt{true}$ nếu đỉnh $j$ được chọn làm center.
+\end{itemize}
+
+\subsubsection{Mệnh đề phủ (Coverage clauses)}
+
+Với mỗi đỉnh $i \in V$, phải tồn tại ít nhất một center trong bán kính $R$:
+\begin{equation}
+    \bigvee_{j \in V:\; d(i,j) \le R} y_j \qquad \forall\, i \in V
+    \label{eq:coverage}
+\end{equation}
+
+Mỗi ràng buộc \eqref{eq:coverage} tương ứng với \textbf{một mệnh đề} (clause) trong CNF.
+Tổng cộng có $n$ mệnh đề phủ.
+
+\subsubsection{Ràng buộc lực lượng: At-Most-$p$}
+
+Cần đảm bảo $\sum_{j \in V} y_j \le p$, tức tối đa $p$ biến $y_j$ nhận giá trị \texttt{true}.
+
+Ràng buộc này được mã hóa bằng \textbf{Sequential Counter} (Sinz, 2005~\cite{sinz2005towards}):
+
+\paragraph{Biến phụ.}
+Đặt $s_{j,k}$ ($j = 1, \dots, n$; $k = 1, \dots, p$) là biến phụ, trong đó $s_{j,k} = \texttt{true}$ nghĩa là ``trong số $y_1, \dots, y_j$ có ít nhất $k$ biến bằng \texttt{true}''.
+
+\paragraph{Mệnh đề mã hóa.}
+\begin{align}
+    & \neg y_1 \lor s_{1,1} \label{eq:sc1} \\
+    & \neg y_j \lor s_{j,1} && \forall\, j = 2, \dots, n \label{eq:sc2} \\
+    & \neg s_{j-1,1} \lor s_{j,1} && \forall\, j = 2, \dots, n \label{eq:sc3} \\
+    & \neg y_j \lor \neg s_{j-1,k-1} \lor s_{j,k} && \forall\, j = 2, \dots, n;\; k = 2, \dots, p \label{eq:sc4} \\
+    & \neg s_{j-1,k} \lor s_{j,k} && \forall\, j = 2, \dots, n;\; k = 2, \dots, p \label{eq:sc5} \\
+    & \neg y_j \lor \neg s_{j-1,p} && \forall\, j = 2, \dots, n \label{eq:sc6}
+\end{align}
+
+\begin{itemize}[nosep]
+    \item \eqref{eq:sc1}--\eqref{eq:sc3}: Khởi tạo và truyền bit đầu tiên.
+    \item \eqref{eq:sc4}--\eqref{eq:sc5}: Truyền đếm: nếu $y_j$ bằng true và đã có $k-1$ biến true, thì $s_{j,k}$ phải true.
+    \item \eqref{eq:sc6}: \textbf{Mệnh đề cấm}: nếu đã có $p$ biến true ($s_{j-1,p}$), thì $y_j$ phải false $\Rightarrow$ đảm bảo at-most-$p$.
+\end{itemize}
+
+Mã hóa Sequential Counter thêm $O(np)$ biến phụ và $O(np)$ mệnh đề.
+
+\subsection{Thuật toán tổng thể}
+
+\begin{algorithm}[h]
+\caption{Giải P-Center bằng SAT}
+\label{alg:sat_pcenter}
+\begin{algorithmic}[1]
+\Require Đồ thị $G=(V,E,w)$, số center $p$
+\Ensure Tập center tối ưu $S^*$, bán kính tối ưu $r^*$
+\State Tính ma trận khoảng cách ngắn nhất $d_{ij}$, $\forall i,j \in V$
+\State $D \gets$ tập giá trị $d_{ij}$ phân biệt, sắp xếp tăng dần
+\State $lo \gets 1$, $hi \gets |D|$
+\While{$lo < hi$}
+    \State $mid \gets \lfloor (lo + hi) / 2 \rfloor$
+    \State $R \gets D[mid]$
+    \State Xây dựng CNF: mệnh đề phủ \eqref{eq:coverage} + at-most-$p$ \eqref{eq:sc1}--\eqref{eq:sc6}
+    \If{SAT\_Solver(CNF) trả về SAT}
+        \State $hi \gets mid$
+        \State Lưu nghiệm $S$
+    \Else
+        \State $lo \gets mid + 1$
+    \EndIf
+\EndWhile
+\State \Return $S^*$, $r^* = D[lo]$
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Phân tích.}
+\begin{itemize}[nosep]
+    \item Số lần gọi SAT solver: $O(\log L)$ với $L = |D| \le \binom{n}{2}$.
+    \item Mỗi lần gọi, CNF có $n$ mệnh đề phủ $+$ $O(np)$ mệnh đề cardinality.
+    \item Phương pháp này rất hiệu quả trong thực tế nhờ sức mạnh của các SAT solver hiện đại (CaDiCaL, Glucose, MiniSat, \ldots).
+\end{itemize}
+
+
+% ====================================================================
+\section{Các phương pháp tối ưu hóa (Optimisation Approaches)}
+\label{sec:optimisation}
+% ====================================================================
+
+Bài toán P-Center là bài toán \emph{tối ưu} (minimisation), nhưng SAT solver chỉ giải bài toán \emph{quyết định} (decision).
+Do đó, cần một chiến lược bọc ngoài (\textit{outer loop}) để chuyển bài toán tối ưu thành chuỗi bài toán quyết định.
+
+Phần này trình bày ba phương pháp chính: \textbf{Non-Incremental SAT}, \textbf{Incremental SAT}, và \textbf{MaxSAT}.
+
+
+% -------------------------------------------------------------------
+\subsection{Non-Incremental SAT (Giải SAT nhiều lần)}
+\label{sec:non-incremental}
+% -------------------------------------------------------------------
+
+\subsubsection{Ý tưởng}
+
+Đây là phương pháp đơn giản nhất: sử dụng \textbf{tìm kiếm nhị phân} trên tập giá trị bán kính $D = \{d^{(1)}, d^{(2)}, \dots, d^{(L)}\}$.
+Tại mỗi bước, \textbf{xây dựng lại toàn bộ công thức CNF từ đầu} và gọi một SAT solver mới.
+
+\subsubsection{Quy trình chi tiết}
+
+\begin{enumerate}[nosep]
+    \item \textbf{Tiền xử lý}: Tính ma trận $d_{ij}$, thu thập tập $D$ các giá trị khoảng cách phân biệt, sắp xếp tăng dần.
+    \item \textbf{Tìm kiếm nhị phân}: Đặt $lo = 1$, $hi = |D|$.
+    \item  Tại mỗi bước $mid = \lfloor(lo + hi)/2\rfloor$, đặt $R = D[mid]$:
+    \begin{enumerate}[nosep, label=(\alph*)]
+        \item Xây dựng \textbf{CNF mới hoàn toàn}:
+            \begin{itemize}[nosep]
+                \item $n$ mệnh đề phủ: $\bigvee_{j: d(i,j) \le R} y_j$ cho mỗi $i$.
+                \item Mã hóa at-most-$p$ (ví dụ Sequential Counter): $O(np)$ mệnh đề.
+            \end{itemize}
+        \item Khởi tạo một \textbf{SAT solver mới} và nạp CNF.
+        \item Gọi solver:
+            \begin{itemize}[nosep]
+                \item Nếu \textbf{SAT}: $hi \gets mid$, lưu nghiệm.
+                \item Nếu \textbf{UNSAT}: $lo \gets mid + 1$.
+            \end{itemize}
+        \item \textbf{Hủy solver} (toàn bộ trạng thái nội bộ, learned clauses bị mất).
+    \end{enumerate}
+    \item Lặp lại cho đến $lo = hi$. Trả về $R^* = D[lo]$.
+\end{enumerate}
+
+\subsubsection{Pseudocode}
+
+\begin{algorithm}[H]
+\caption{Non-Incremental SAT cho P-Center}
+\label{alg:non_incremental}
+\begin{algorithmic}[1]
+\Require Đồ thị $G=(V,E,w)$, số center $p$
+\Ensure Tập center $S^*$, bán kính tối ưu $r^*$
+\State Tính $d_{ij}$, $\forall i,j \in V$
+\State $D \gets \text{sorted\_unique}(\{d_{ij}\})$
+\State $lo \gets 1$, $hi \gets |D|$, $S^* \gets \emptyset$
+\While{$lo < hi$}
+    \State $mid \gets \lfloor (lo + hi) / 2 \rfloor$
+    \State $R \gets D[mid]$
+    \State $\varphi \gets \emptyset$ \Comment{Xây CNF mới từ đầu}
+    \ForAll{$i \in V$}
+        \State $\varphi \gets \varphi \cup \big\{  \bigvee_{j: d(i,j) \le R} y_j \big\}$ \Comment{Coverage clause}
+    \EndFor
+    \State $\varphi \gets \varphi \cup \textsc{SeqCounter}(y_1, \dots, y_n, p)$ \Comment{At-most-$p$}
+    \State solver $\gets$ \textbf{new} SAT\_Solver()
+    \State solver.add\_clauses($\varphi$)
+    \If{solver.solve() $=$ SAT}
+        \State $hi \gets mid$
+        \State $S^* \gets \{j : \text{solver.value}(y_j) = \texttt{true}\}$
+    \Else
+        \State $lo \gets mid + 1$
+    \EndIf
+    \State \textbf{delete} solver \Comment{Hủy solver, mất toàn bộ learned clauses}
+\EndWhile
+\State \Return $S^*$, $r^* = D[lo]$
+\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{Phân tích}
+
+\begin{itemize}[nosep]
+    \item \textbf{Số lần gọi solver}: $O(\log L)$, với $L \le \binom{n}{2}$.
+    \item \textbf{Chi phí mỗi lần}: Xây dựng CNF $O(n + np)$ + giải SAT (exponential worst case, nhưng thường nhanh trong thực tế).
+    \item \textbf{Nhược điểm chính}: Mỗi lần gọi solver đều bắt đầu từ đầu -- \textbf{mất toàn bộ learned clauses} từ lần giải trước. Đây là lãng phí lớn vì các CNF giữa hai bước liên tiếp thường rất giống nhau (chỉ khác ở các mệnh đề phủ).
+    \item \textbf{Ưu điểm}: Đơn giản, dễ cài đặt, không phụ thuộc API đặc thù của solver.
+\end{itemize}
+
+
+% -------------------------------------------------------------------
+\subsection{Incremental SAT (SAT gia tăng)}
+\label{sec:incremental}
+% -------------------------------------------------------------------
+
+\subsubsection{Ý tưởng}
+
+Quan sát then chốt: trong quá trình tìm kiếm nhị phân, \textbf{ràng buộc cardinality (at-most-$p$) không thay đổi} -- chỉ có các \textbf{mệnh đề phủ thay đổi} khi $R$ thay đổi.
+Incremental SAT \textbf{giữ nguyên solver} xuyên suốt quá trình, tận dụng:
+\begin{itemize}[nosep]
+    \item \textbf{Learned clauses}: Các mệnh đề học được từ lần giải trước vẫn hợp lệ (vì chúng là hệ quả logic của các mệnh đề cố định).
+    \item \textbf{Heuristic state}: Thứ tự biến (VSIDS scores), phase saving, \ldots
+\end{itemize}
+
+\subsubsection{Cơ chế Assumption Literals}
+
+SAT solver hiện đại hỗ trợ cơ chế \textbf{assumption} (giả thiết) qua giao diện IPASIR~\cite{balyo2016ipasir}:
+
+\begin{itemize}[nosep]
+    \item \texttt{solver.add\_clause(clause)}: Thêm mệnh đề \textbf{vĩnh viễn} (không thể gỡ bỏ).
+    \item \texttt{solver.solve(assumptions=[a1, a2, ...])}: Giải dưới giả thiết các literal $a_1, a_2, \dots$ phải đúng. Khi lần gọi kết thúc, các assumption được \textbf{tự động gỡ bỏ}.
+\end{itemize}
+
+\paragraph{Kỹ thuật.}
+Với mỗi giá trị bán kính $R_t$ (ứng với bước $t$ trong tìm kiếm nhị phân), tạo một \textbf{assumption literal} $\alpha_t$.
+Các mệnh đề phủ tại bước $t$ được ``bảo vệ'' bởi $\alpha_t$:
+
+\begin{equation}
+    \neg \alpha_t \lor \bigvee_{j: d(i,j) \le R_t} y_j \qquad \forall\, i \in V
+    \label{eq:guarded_coverage}
+\end{equation}
+
+Khi gọi solver với assumption $\alpha_t = \texttt{true}$, các mệnh đề này được kích hoạt.
+Ở bước tiếp theo, $\alpha_t$ không được giả thiết nữa nên các mệnh đề cũ trở thành \textbf{tautology} (luôn đúng) và không ảnh hưởng đến solver.
+
+\subsubsection{Cấu trúc CNF}
+
+\begin{itemize}[nosep]
+    \item \textbf{Mệnh đề cố định} (thêm một lần duy nhất):
+    \begin{itemize}[nosep]
+        \item At-most-$p$: Sequential Counter \eqref{eq:sc1}--\eqref{eq:sc6} trên $y_1, \dots, y_n$.
+    \end{itemize}
+
+    \item \textbf{Mệnh đề có điều kiện} (thêm tại mỗi bước $t$):
+    \begin{itemize}[nosep]
+        \item Coverage guarded: $(\neg \alpha_t \lor y_{j_1} \lor y_{j_2} \lor \cdots)$ cho mỗi $i$ với $\{j_1, j_2, \dots\} = \{j: d(i,j) \le R_t\}$.
+    \end{itemize}
+
+    \item \textbf{Gọi solver}: \texttt{solver.solve(assumptions=[$\alpha_t$])}.
+\end{itemize}
+
+\subsubsection{Pseudocode}
+
+\begin{algorithm}[H]
+\caption{Incremental SAT cho P-Center}
+\label{alg:incremental}
+\begin{algorithmic}[1]
+\Require Đồ thị $G=(V,E,w)$, số center $p$
+\Ensure Tập center $S^*$, bán kính tối ưu $r^*$
+\State Tính $d_{ij}$, $\forall i,j \in V$
+\State $D \gets \text{sorted\_unique}(\{d_{ij}\})$
+\State solver $\gets$ \textbf{new} SAT\_Solver() \Comment{Khởi tạo \textbf{một lần duy nhất}}
+\State solver.add\_clauses($\textsc{SeqCounter}(y_1, \dots, y_n, p)$) \Comment{Mệnh đề cố định}
+\State $lo \gets 1$, $hi \gets |D|$, $S^* \gets \emptyset$
+\While{$lo < hi$}
+    \State $mid \gets \lfloor (lo + hi) / 2 \rfloor$
+    \State $R \gets D[mid]$
+    \State $\alpha \gets$ fresh\_variable() \Comment{Assumption literal mới}
+    \ForAll{$i \in V$}
+        \State solver.add\_clause$(\neg \alpha \lor \bigvee_{j: d(i,j) \le R} y_j)$ \Comment{Guarded coverage}
+    \EndFor
+    \If{solver.solve(assumptions=$[\alpha]$) $=$ SAT}
+        \State $hi \gets mid$
+        \State $S^* \gets \{j : \text{solver.value}(y_j) = \texttt{true}\}$
+    \Else
+        \State $lo \gets mid + 1$
+    \EndIf
+    \Comment{Solver giữ nguyên learned clauses \& heuristics}
+\EndWhile
+\State \Return $S^*$, $r^* = D[lo]$
+\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{Phân tích}
+
+\begin{itemize}[nosep]
+    \item \textbf{Solver chỉ khởi tạo một lần}: Tiết kiệm chi phí khởi tạo.
+    \item \textbf{Learned clauses được tích lũy}: Solver ngày càng ``thông minh hơn'' qua các bước.
+    \item \textbf{Mệnh đề cố định chiếm phần lớn CNF}: At-most-$p$ encoding ($O(np)$ mệnh đề) chỉ thêm một lần; mỗi bước chỉ thêm $n$ mệnh đề phủ mới.
+    \item \textbf{Chi phí phụ}: Tổng cộng thêm $O(n \log L)$ mệnh đề guarded vào solver (không gỡ bỏ được, nhưng trở thành tautology).
+    \item \textbf{Yêu cầu}: SAT solver hỗ trợ API incremental (IPASIR): CaDiCaL, Glucose, MiniSat, Lingeling, \ldots
+\end{itemize}
+
+\paragraph{Tại sao learned clauses vẫn hợp lệ?}
+Khi giả thiết $\alpha_t$ bị gỡ, mệnh đề $(\neg \alpha_t \lor \ell_1 \lor \cdots \lor \ell_k)$ trở thành tautology (đúng với mọi assignment).
+Bất kỳ mệnh đề nào suy ra (\textit{resolve}) từ tập mệnh đề gốc $+$ tautology đều vẫn là hệ quả logic hợp lệ.
+Do đó, \textbf{tất cả learned clauses đều an toàn để giữ lại}.
+
+
+% -------------------------------------------------------------------
+\subsection{MaxSAT (Tối ưu hóa trực tiếp)}
+\label{sec:maxsat}
+% -------------------------------------------------------------------
+
+\subsubsection{Ý tưởng}
+
+Thay vì giải nhiều bài toán quyết định, MaxSAT cho phép \textbf{mã hóa trực tiếp mục tiêu tối ưu} vào một công thức duy nhất.
+Ta sử dụng \textbf{Weighted Partial MaxSAT} (WPMS)~\cite{li2021maxsat}:
+\begin{itemize}[nosep]
+    \item \textbf{Hard clauses}: Phải thỏa mãn (vi phạm $\Rightarrow$ nghiệm không hợp lệ).
+    \item \textbf{Soft clauses}: Có thể vi phạm, mỗi vi phạm chịu \textbf{trọng số} (weight). Mục tiêu: tối thiểu hóa tổng trọng số vi phạm.
+\end{itemize}
+
+\subsubsection{Mã hóa bài toán P-Center}
+
+\paragraph{Biến Boolean.}
+\begin{itemize}[nosep]
+    \item $y_j$, $\forall j \in V$: đỉnh $j$ được chọn làm center.
+    \item $t_k$, $k = 1, \dots, L$: biến ``ngưỡng'' (\textit{threshold}), trong đó $t_k = \texttt{true}$ nghĩa là bán kính tối ưu $\le d^{(k)}$.
+\end{itemize}
+
+\paragraph{Hard clauses} (phải thỏa mãn).
+
+\begin{enumerate}[nosep, label=(H\arabic*)]
+    \item \textbf{At-most-$p$}: Mã hóa $\sum_j y_j \le p$ bằng Sequential Counter (như §\ref{sec:sat}).
+    \label{hc:cardinality}
+
+    \item \textbf{Liên kết ngưỡng -- phủ}: Nếu $t_k = \texttt{true}$ (bán kính $\le d^{(k)}$), thì mọi đỉnh phải được phủ bởi ít nhất một center trong phạm vi $d^{(k)}$:
+    \begin{equation}
+        \neg t_k \lor \bigvee_{j: d(i,j) \le d^{(k)}} y_j \qquad \forall\, i \in V,\; k = 1, \dots, L
+        \label{eq:maxsat_coverage}
+    \end{equation}
+    \label{hc:coverage}
+
+    \item \textbf{Đơn điệu ngưỡng}: Nếu bán kính $\le d^{(k)}$ thì cũng $\le d^{(k+1)}$:
+    \begin{equation}
+        \neg t_k \lor t_{k+1} \qquad \forall\, k = 1, \dots, L-1
+        \label{eq:monotone}
+    \end{equation}
+    \label{hc:monotone}
+\end{enumerate}
+
+\paragraph{Soft clauses} (tối ưu hóa).
+
+Mỗi biến $t_k$ là soft clause đơn vị $\{t_k\}$ với trọng số $w_k$:
+\begin{equation}
+    \text{soft clause: } (t_k) \quad \text{weight } w_k \qquad \forall\, k = 1, \dots, L
+    \label{eq:soft}
+\end{equation}
+
+Nếu $t_k$ vi phạm (tức $t_k = \texttt{false}$, nghĩa là bán kính $> d^{(k)}$), ta chịu chi phí $w_k$.
+
+\paragraph{Chọn trọng số.}
+
+Hai cách chọn trọng số phổ biến:
+\begin{itemize}[nosep]
+    \item \textbf{Trọng số đồng nhất}: $w_k = 1$, $\forall k$.
+    MaxSAT solver sẽ tối đa số $t_k$ đúng, tức \textbf{tối thiểu $k^*$} nhỏ nhất mà $t_{k^*} = \texttt{false}$.
+    Nhờ ràng buộc đơn điệu \eqref{eq:monotone}, nghiệm sẽ có dạng $t_1 = \cdots = t_{k^*-1} = \texttt{false}$, $t_{k^*} = \cdots = t_L = \texttt{true}$, tương ứng bán kính tối ưu $r^* = d^{(k^*)}$.
+
+    \item \textbf{Trọng số lũy thừa}: $w_k = 2^{L-k}$.
+    Ưu tiên mạnh việc thỏa mãn các $t_k$ nhỏ (bán kính nhỏ), đảm bảo solver tìm $k^*$ nhỏ nhất trước.
+\end{itemize}
+
+\subsubsection{Pseudocode}
+
+\begin{algorithm}[H]
+\caption{Weighted Partial MaxSAT cho P-Center}
+\label{alg:maxsat}
+\begin{algorithmic}[1]
+\Require Đồ thị $G=(V,E,w)$, số center $p$
+\Ensure Tập center $S^*$, bán kính tối ưu $r^*$
+\State Tính $d_{ij}$, $\forall i,j \in V$
+\State $D \gets \text{sorted\_unique}(\{d_{ij}\})$,\; $L \gets |D|$
+\State solver $\gets$ \textbf{new} MaxSAT\_Solver()
+\Statex
+\State \Comment{\textbf{Hard clauses}}
+\State solver.add\_hard($\textsc{SeqCounter}(y_1, \dots, y_n, p)$) \Comment{At-most-$p$}
+\ForAll{$k = 1, \dots, L$}
+    \ForAll{$i \in V$}
+        \State solver.add\_hard$(\neg t_k \lor \bigvee_{j: d(i,j) \le D[k]} y_j)$ \Comment{Coverage}
+    \EndFor
+\EndFor
+\ForAll{$k = 1, \dots, L-1$}
+    \State solver.add\_hard$(\neg t_k \lor t_{k+1})$ \Comment{Monotonicity}
+\EndFor
+\Statex
+\State \Comment{\textbf{Soft clauses}}
+\ForAll{$k = 1, \dots, L$}
+    \State solver.add\_soft$(t_k,\; w_k)$ \Comment{Tối đa hóa số $t_k$ đúng}
+\EndFor
+\Statex
+\State solver.solve()
+\State $S^* \gets \{j : \text{solver.value}(y_j) = \texttt{true}\}$
+\State $k^* \gets \min\{k : \text{solver.value}(t_k) = \texttt{true}\}$
+\State \Return $S^*$, $r^* = D[k^*]$
+\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{Phân tích}
+
+\begin{itemize}[nosep]
+    \item \textbf{Một lần gọi solver duy nhất}: Không cần outer loop (binary search).
+    \item \textbf{Kích thước công thức}: $O(np)$ hard clauses (cardinality) $+$ $O(nL)$ hard clauses (coverage) $+$ $L$ soft clauses $+$ $L$ monotonicity clauses.
+    \item \textbf{Ưu điểm}: MaxSAT solver (RC2, Open-WBO, EvalMaxSAT, \ldots) có các kỹ thuật tối ưu nội bộ mạnh mẽ (stratification, core-guided search, \ldots) giúp không cần duyệt qua tất cả $L$ giá trị.
+    \item \textbf{Nhược điểm}: Kích thước CNF lớn hơn đáng kể ($O(nL)$ vs $O(n)$ cho mỗi bước SAT), có thể chậm hơn trên instance lớn nếu $L$ lớn.
+\end{itemize}
+
+
+% -------------------------------------------------------------------
+\subsection{So sánh các phương pháp}
+\label{sec:comparison}
+% -------------------------------------------------------------------
+
+\begin{table}[h]
+\centering
+\caption{So sánh ba phương pháp tối ưu hóa dựa trên SAT cho P-Center.}
+\label{tab:comparison}
+\small
+\begin{tabular}{p{3cm} p{3.8cm} p{3.8cm} p{3.8cm}}
+\toprule
+\textbf{Tiêu chí} & \textbf{Non-Incremental} & \textbf{Incremental SAT} & \textbf{MaxSAT} \\
+\midrule
+\textbf{Số lần gọi solver} & $O(\log L)$ lần, mỗi lần solver mới & $O(\log L)$ lần, cùng solver & 1 lần duy nhất \\
+\addlinespace
+\textbf{Learned clauses} & Mất sau mỗi bước & Tích lũy xuyên suốt & Nội bộ MaxSAT solver \\
+\addlinespace
+\textbf{Kích thước CNF mỗi bước} & $O(n + np)$ & $O(n)$ mới $+$ $O(np)$ cố định & $O(nL + np)$ tổng \\
+\addlinespace
+\textbf{Yêu cầu API} & API cơ bản & IPASIR (assumptions) & WCNF (hard/soft) \\
+\addlinespace
+\textbf{Solver phù hợp} & MiniSat, CaDiCaL, Glucose & CaDiCaL, Lingeling, Glucose & RC2, Open-WBO, EvalMaxSAT \\
+\addlinespace
+\textbf{Độ phức tạp cài đặt} & Đơn giản & Trung bình & Trung bình \\
+\addlinespace
+\textbf{Hiệu quả thực tế} & Tốt cho instance nhỏ & Tốt nhất cho instance trung bình -- lớn & Tốt khi $L$ không quá lớn \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Hướng dẫn chọn phương pháp.}
+\begin{itemize}[nosep]
+    \item Nếu cần \textbf{cài đặt nhanh, đơn giản}: dùng \textbf{Non-Incremental}.
+    \item Nếu muốn \textbf{hiệu quả tốt nhất} trên instance lớn: dùng \textbf{Incremental SAT} (tận dụng learned clauses).
+    \item Nếu muốn \textbf{formulation gọn, một lần gọi}: dùng \textbf{MaxSAT} (nhưng cần cân nhắc kích thước $L$).
+\end{itemize}
+
+
+% ====================================================================
+\section{Dữ liệu thực nghiệm (Benchmark Datasets)}
+\label{sec:datasets}
+% ====================================================================
+
+Các nghiên cứu về P-Center thường đánh giá trên hai bộ dữ liệu chuẩn chính:
+
+\subsection{Bộ pmed (OR-Library)}
+
+\begin{itemize}[nosep]
+    \item \textbf{Nguồn}: OR-Library, xây dựng bởi Beasley~\cite{beasley1990or}.
+    \item \textbf{Nội dung}: 40 instance (\texttt{pmed1} -- \texttt{pmed40}).
+    \item \textbf{Quy mô}: Số đỉnh $n$ từ 100 đến 900; giá trị $p$ từ 5 đến 200.
+    \item \textbf{Cấu trúc}: Đồ thị thưa (sparse graph), khoảng cách giữa các cặp đỉnh được tính bằng đường đi ngắn nhất (thuật toán Floyd-Warshall hoặc Dijkstra).
+    \item \textbf{Đặc điểm}:
+    \begin{itemize}[nosep]
+        \item Ban đầu thiết kế cho bài toán \textit{p-median}, nhưng được sử dụng phổ biến cho p-center vì cùng cấu trúc đồ thị.
+        \item Nghiệm tối ưu đã được biết cho tất cả 40 instance.
+    \end{itemize}
+    \item \textbf{URL}: \url{https://people.brunel.ac.uk/~mastjjb/jeb/orlib/pmedinfo.html}
+\end{itemize}
+
+\subsection{Bộ TSPLIB}
+
+\begin{itemize}[nosep]
+    \item \textbf{Nguồn}: TSPLIB, xây dựng bởi Reinelt~\cite{reinelt1991tsplib}.
+    \item \textbf{Nội dung}: Các instance gốc dùng cho bài toán TSP, được chuyển đổi cho p-center bằng cách tính khoảng cách Euclid giữa các điểm.
+    \item \textbf{Quy mô}: Từ vài trăm đến hàng nghìn đỉnh (ví dụ: \texttt{att48}, \texttt{eil76}, \texttt{lin318}, \texttt{rat783}, \texttt{pr1002}, \ldots).
+    \item \textbf{Đặc điểm}:
+    \begin{itemize}[nosep]
+        \item Đồ thị đầy đủ (complete graph) với khoảng cách Euclid 2D.
+        \item Khó hơn bộ pmed do đồ thị đầy đủ $\Rightarrow$ ma trận khoảng cách dày đặc.
+    \end{itemize}
+    \item \textbf{URL}: \url{http://comopt.ifi.uni-heidelberg.de/software/TSPLIB95/}
+\end{itemize}
+
+\subsection{Bộ dữ liệu bổ sung}
+
+Ngoài hai bộ chuẩn trên, một số nghiên cứu gần đây đã đề xuất các instance lớn hơn.
+Ví dụ, Liu et al.~\cite{liu2020effective} thử nghiệm trên cả pmed và TSPLIB, sử dụng phương pháp quy về Set Covering $+$ SAT solver để giải hiệu quả các instance cỡ lớn.
+
+\begin{table}[h]
+\centering
+\caption{Tổng hợp bộ dữ liệu benchmark cho P-Center.}
+\label{tab:datasets}
+\begin{tabular}{llccc}
+\toprule
+\textbf{Bộ dữ liệu} & \textbf{Loại đồ thị} & \textbf{Số instance} & \textbf{Quy mô $n$} & \textbf{Tham khảo} \\
+\midrule
+pmed (OR-Library) & Thưa (sparse) & 40 & 100 -- 900 & \cite{beasley1990or} \\
+TSPLIB & Đầy đủ (Euclid 2D) & nhiều & 48 -- 3038+ & \cite{reinelt1991tsplib} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+% ====================================================================
+% References
+% ====================================================================
+\bibliographystyle{plain}
+\begin{thebibliography}{10}
+
+\bibitem{kariv1979algorithmic}
+O.~Kariv and S.~L.~Hakimi.
+\newblock An algorithmic approach to network location problems. {I}: The $p$-centers.
+\newblock \emph{SIAM Journal on Applied Mathematics}, 37(3):513--538, 1979.
+
+\bibitem{beasley1990or}
+J.~E.~Beasley.
+\newblock {OR-Library}: distributing test problems by electronic mail.
+\newblock \emph{Journal of the Operational Research Society}, 41(11):1069--1072, 1990.
+
+\bibitem{reinelt1991tsplib}
+G.~Reinelt.
+\newblock {TSPLIB} --- a traveling salesman problem library.
+\newblock \emph{ORSA Journal on Computing}, 3(4):376--384, 1991.
+
+\bibitem{sinz2005towards}
+C.~Sinz.
+\newblock Towards an optimal {CNF} encoding of boolean cardinality constraints.
+\newblock In \emph{Proceedings of the 11th International Conference on Principles and Practice of Constraint Programming (CP 2005)}, pages 827--831, 2005.
+
+\bibitem{liu2020effective}
+X.~Liu, Y.~Fang, J.~Chen, and Z.~L{\"u}.
+\newblock Effective approaches to solve {P-Center} problem via set covering and {SAT}.
+\newblock \emph{arXiv preprint arXiv:2008.xxxxx}, 2020.
+
+\bibitem{minieka1970m}
+E.~Minieka.
+\newblock The $m$-center problem.
+\newblock \emph{SIAM Review}, 12(1):138--139, 1970.
+
+\bibitem{daskin1995network}
+M.~S.~Daskin.
+\newblock \emph{Network and Discrete Location: Models, Algorithms, and Applications}.
+\newblock John Wiley \& Sons, 1995.
+
+\bibitem{calik2015pcenter}
+H.~\c{C}al{\i}k, M.~Labb\'e, and H.~Yaman.
+\newblock p-center problems.
+\newblock In G.~Laporte, S.~Nickel, and F.~Saldanha da Gama, editors, \emph{Location Science}, chapter~4, pages 79--92. Springer, 2015.
+
+\bibitem{balyo2016ipasir}
+T.~Balyo, A.~Biere, M.~Iser, and C.~Sinz.
+\newblock {SAT Race 2015}.
+\newblock \emph{Artificial Intelligence}, 241:45--65, 2016.
+\newblock (Defines the IPASIR incremental SAT interface.)
+
+\bibitem{li2021maxsat}
+C.~M.~Li and F.~Manya.
+\newblock {MaxSAT}, hard and soft constraints.
+\newblock In A.~Biere, M.~Heule, H.~van~Maaren, and T.~Walsh, editors, \emph{Handbook of Satisfiability}, chapter~19, pages 903--927. IOS Press, 2nd edition, 2021.
+
+\bibitem{een2003temporal}
+N.~E{\'e}n and N.~S{\"o}rensson.
+\newblock An extensible {SAT}-solver.
+\newblock In \emph{SAT 2003}, LNCS 2919, pages 502--518. Springer, 2003.
+\newblock (MiniSat -- foundational incremental SAT solver.)
+
+\end{thebibliography}
+
+\end{document}
